@@ -22,9 +22,11 @@ contract VaultManager is Secp256k1, ReentrancyGuard, Ownable {
     
     uint256 public constant COLLATERAL_RATIO = 150; // 150% overcollateralization
     uint256 public constant LIQUIDATION_RATIO = 120; // 120% liquidation threshold
+    uint256 public constant LIQUIDATION_BONUS = 110; // 110% liquidator reward (must be < threshold)
     uint256 public constant RATIO_PRECISION = 100;
     uint256 public constant PRICE_PRECISION = 1e18;
     uint256 public constant BURN_TIMEOUT = 24 hours; // LP must fulfill burn within 24h
+    // NOTE: Monero PTLC refund timelock MUST be < BURN_TIMEOUT (e.g., 12h) to prevent griefing
     
     // ========== STATE VARIABLES ==========
     
@@ -43,6 +45,7 @@ contract VaultManager is Secp256k1, ReentrancyGuard, Ownable {
     enum MintStatus {
         INVALID,
         PENDING,
+        READY,      // LP confirmed XMR lock on Monero chain
         COMPLETED,
         CANCELLED
     }
@@ -119,6 +122,7 @@ contract VaultManager is Secp256k1, ReentrancyGuard, Ownable {
         bytes32 claimCommitment,
         uint256 timeout
     );
+    event MintReady(bytes32 indexed requestId);
     event MintFinalized(bytes32 indexed requestId, bytes32 secret);
     event MintCancelled(bytes32 indexed requestId);
     
@@ -342,13 +346,26 @@ contract VaultManager is Secp256k1, ReentrancyGuard, Ownable {
     }
     
     /**
+     * @notice LP confirms User has locked XMR on the Monero network
+     * @param _requestId The mint request ID
+     */
+    function setMintReady(bytes32 _requestId) external {
+        MintRequest storage request = mintRequests[_requestId];
+        if (request.status != MintStatus.PENDING) revert InvalidStatus();
+        if (msg.sender != request.lpVault) revert Unauthorized();
+        
+        request.status = MintStatus.READY;
+        emit MintReady(_requestId);
+    }
+    
+    /**
      * @notice Finalize mint after LP has claimed XMR on Monero chain
      * @param _requestId The mint request ID
      * @param _secret The secret revealed by LP when claiming XMR
      */
     function finalizeMint(bytes32 _requestId, bytes32 _secret) external nonReentrant {
         MintRequest storage request = mintRequests[_requestId];
-        if (request.status != MintStatus.PENDING) revert InvalidStatus();
+        if (request.status != MintStatus.READY) revert InvalidStatus(); // MUST be READY, not PENDING
         
         // Verify the secret matches the commitment using secp256k1 verification
         if (!mulVerify(uint256(_secret), uint256(request.claimCommitment))) {
@@ -537,9 +554,9 @@ contract VaultManager is Secp256k1, ReentrancyGuard, Ownable {
         // Burn wsXMR from liquidator
         wsxmrToken.burn(msg.sender, _debtToClear);
         
-        // Calculate collateral to seize (at liquidation ratio for discount)
+        // Calculate collateral to seize (at liquidation bonus, which is < threshold to prevent death spiral)
         uint256 collateralValue = getCollateralValueForDebt(_debtToClear);
-        uint256 collateralToSeize = (collateralValue * LIQUIDATION_RATIO) / RATIO_PRECISION;
+        uint256 collateralToSeize = (collateralValue * LIQUIDATION_BONUS) / RATIO_PRECISION;
         uint256 collateralAmount = usdToCollateral(vault.collateralAsset, collateralToSeize);
         
         if (collateralAmount > vault.collateralAmount) {

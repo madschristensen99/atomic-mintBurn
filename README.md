@@ -61,8 +61,11 @@ To try the swap locally with two nodes (maker and taker) on a development enviro
 2. **Initiate Mint**: User calls `initiateMint(lpVault, xmrAmount, claimCommitment, timeout)`
    - State: `MintPending`
 3. **Lock XMR**: User locks XMR on Monero chain using adaptor signatures
-4. **LP Claims XMR**: LP daemon detects lock and claims XMR, revealing secret `s`
-5. **Finalize Mint**: User (or relayer) submits `s` via `finalizeMint(requestId, secret)`
+4. **LP Confirms Lock**: LP verifies XMR lock on Monero and calls `setMintReady(requestId)`
+   - State: `MintReady`
+   - **Security**: Prevents "free wsXMR" exploit where user could finalize without locking XMR
+5. **LP Claims XMR**: LP daemon claims XMR on Monero, revealing secret `s`
+6. **Finalize Mint**: User (or relayer) submits `s` via `finalizeMint(requestId, secret)`
    - Contract verifies proof using `Secp256k1.mulVerify()`
    - Mints wsXMR to user
    - Increases LP vault debt
@@ -72,9 +75,10 @@ To try the swap locally with two nodes (maker and taker) on a development enviro
 
 1. **Initiate Burn**: User calls `initiateBurn(wsxmrAmount, lpVault, refundCommitment)`
    - wsXMR is burned immediately
-   - 24-hour deadline starts
+   - 24-hour EVM deadline starts
    - State: `BurnPending`
-2. **LP Sends XMR**: LP daemon detects burn and initiates XMR transfer to user
+2. **LP Sends XMR**: LP daemon locks XMR on Monero with PTLC (refund timelock < 12h)
+   - **Security**: Monero refund must expire BEFORE EVM deadline to prevent griefing
 3. **User Claims XMR**: User claims XMR on Monero chain, revealing secret `s2`
 4. **Finalize Burn**: LP daemon submits `s2` via `finalizeBurn(requestId, secret)`
    - Contract verifies proof
@@ -84,13 +88,18 @@ To try the swap locally with two nodes (maker and taker) on a development enviro
 5. **Penalty Path**: If LP fails to complete within 24h:
    - User calls `claimSlashedCollateral(requestId)`
    - User receives 150% of wsXMR value in EVM collateral
+6. **Griefing Protection**: If user refuses to claim Monero:
+   - LP waits for Monero refund timelock (12h)
+   - LP recovers their XMR on Monero
+   - LP loses EVM collateral but keeps XMR (net zero loss)
 
 ### Liquidation
 
 Any keeper can liquidate an LP vault if:
-- Collateral ratio < 120%
+- Collateral ratio < 120% (liquidation threshold)
 - Liquidator burns wsXMR to clear debt
-- Receives collateral at 120% ratio (10% discount incentive)
+- Receives collateral at 110% ratio (10% bonus)
+- **Security**: Bonus (110%) < Threshold (120%) prevents partial liquidation death spiral
 
 ## Price Oracles
 
