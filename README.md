@@ -1,10 +1,10 @@
-# wsXMR - Wrapped Monero Protocol
+# wsXMR - Wrapsynth Protocol
 
 **Status: In Development** - Transforming AthanorLabs atomic-swap into a stateful, trust-minimized wrapped token protocol.
 
 ## Overview
 
-This repository contains the **wsXMR (Wrapped Staked Monero)** protocol - a CDP (Collateralized Debt Position) vault system that enables trustless wrapping of Monero (XMR) into an ERC-20 token on EVM chains. The protocol builds upon the cryptographic foundations of the original ETH-XMR atomic swap implementation.
+This repository contains the **wsXMR (Wrapsynth Monero)** protocol - a CDP (Collateralized Debt Position) vault system that enables trustless wrapping of Monero (XMR) into an ERC-20 token on EVM chains. The protocol builds upon the cryptographic foundations of the original ETH-XMR atomic swap implementation.
 
 ### Key Features
 
