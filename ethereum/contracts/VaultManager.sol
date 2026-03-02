@@ -93,6 +93,7 @@ contract VaultManager is Secp256k1, ReentrancyGuard, Ownable {
         address lpVault;
         uint256 wsxmrAmount;
         uint256 xmrAmount;
+        uint256 escrowedCollateral; // Collateral escrowed for this burn (prevents race with liquidation)
         bytes32 refundCommitment; // Hash of secret that user will reveal
         uint256 deadline; // LP must complete before this
         BurnStatus status;
@@ -424,6 +425,16 @@ contract VaultManager is Secp256k1, ReentrancyGuard, Ownable {
         // Convert wsXMR to XMR amount
         uint256 xmrAmount = _wsxmrAmount * 1e4;
         
+        // Calculate the 150% collateral required strictly for this burn
+        uint256 collateralValue = getCollateralValueForDebt(_wsxmrAmount);
+        uint256 collateralToEscrow = usdToCollateral(
+            vault.collateralAsset,
+            (collateralValue * COLLATERAL_RATIO) / RATIO_PRECISION
+        );
+        
+        // Ensure the LP actually has enough free collateral to cover this burn
+        if (vault.collateralAmount < collateralToEscrow) revert InsufficientCollateral();
+        
         // Generate unique request ID
         requestId = keccak256(abi.encodePacked(
             msg.sender,
@@ -436,6 +447,11 @@ contract VaultManager is Secp256k1, ReentrancyGuard, Ownable {
         
         if (burnRequests[requestId].status != BurnStatus.INVALID) revert BurnAlreadyExists();
         
+        // CRITICAL: Immediately escrow the collateral and remove the debt from the Vault
+        // This prevents race condition with liquidation causing underflow
+        vault.collateralAmount -= collateralToEscrow;
+        vault.debtAmount -= _wsxmrAmount;
+        
         // Burn the wsXMR tokens from user
         wsxmrToken.burn(msg.sender, _wsxmrAmount);
         
@@ -445,6 +461,7 @@ contract VaultManager is Secp256k1, ReentrancyGuard, Ownable {
             lpVault: _lpVault,
             wsxmrAmount: _wsxmrAmount,
             xmrAmount: xmrAmount,
+            escrowedCollateral: collateralToEscrow,
             refundCommitment: _refundCommitment,
             deadline: block.timestamp + BURN_TIMEOUT,
             status: BurnStatus.PENDING
@@ -478,9 +495,10 @@ contract VaultManager is Secp256k1, ReentrancyGuard, Ownable {
             revert InvalidSecret();
         }
         
-        // Reduce vault debt
+        // Debt was already reduced in initiateBurn
+        // Simply return the escrowed collateral to the LP's active balance
         Vault storage vault = vaults[request.lpVault];
-        vault.debtAmount -= request.wsxmrAmount;
+        vault.collateralAmount += request.escrowedCollateral;
         
         // Mark as completed
         request.status = BurnStatus.COMPLETED;
@@ -500,30 +518,16 @@ contract VaultManager is Secp256k1, ReentrancyGuard, Ownable {
         
         Vault storage vault = vaults[request.lpVault];
         
-        // Calculate collateral to seize (150% of wsXMR value)
-        uint256 collateralValue = getCollateralValueForDebt(request.wsxmrAmount);
-        uint256 collateralToSeize = (collateralValue * COLLATERAL_RATIO) / RATIO_PRECISION;
-        
-        // Convert USD value to collateral token amount
-        uint256 collateralAmount = usdToCollateral(vault.collateralAsset, collateralToSeize);
-        
-        if (collateralAmount > vault.collateralAmount) {
-            collateralAmount = vault.collateralAmount;
-        }
-        
-        // Reduce vault collateral and debt
-        vault.collateralAmount -= collateralAmount;
-        vault.debtAmount -= request.wsxmrAmount;
-        
-        // Transfer collateral to user
+        // Debt and Collateral were already separated from the vault in initiateBurn
+        // Just send the escrow straight to the user (no underflow risk)
         if (vault.collateralAsset == address(0)) {
-            payable(request.user).transfer(collateralAmount);
+            payable(request.user).transfer(request.escrowedCollateral);
         } else {
-            IERC20(vault.collateralAsset).safeTransfer(request.user, collateralAmount);
+            IERC20(vault.collateralAsset).safeTransfer(request.user, request.escrowedCollateral);
         }
         
         request.status = BurnStatus.SLASHED;
-        emit BurnSlashed(_requestId, request.user, collateralAmount);
+        emit BurnSlashed(_requestId, request.user, request.escrowedCollateral);
     }
     
     // ========== LIQUIDATION ==========
@@ -551,9 +555,6 @@ contract VaultManager is Secp256k1, ReentrancyGuard, Ownable {
         );
         if (ratio >= LIQUIDATION_RATIO) revert VaultHealthy();
         
-        // Burn wsXMR from liquidator
-        wsxmrToken.burn(msg.sender, _debtToClear);
-        
         // Calculate collateral to seize (at liquidation bonus, which is < threshold to prevent death spiral)
         uint256 collateralValue = getCollateralValueForDebt(_debtToClear);
         uint256 collateralToSeize = (collateralValue * LIQUIDATION_BONUS) / RATIO_PRECISION;
@@ -563,9 +564,12 @@ contract VaultManager is Secp256k1, ReentrancyGuard, Ownable {
             collateralAmount = vault.collateralAmount;
         }
         
-        // Update vault
+        // CHECKS-EFFECTS-INTERACTIONS: Update state before external calls
         vault.collateralAmount -= collateralAmount;
         vault.debtAmount -= _debtToClear;
+        
+        // Burn wsXMR from liquidator (interaction after state changes)
+        wsxmrToken.burn(msg.sender, _debtToClear);
         
         // Transfer collateral to liquidator
         if (vault.collateralAsset == address(0)) {
