@@ -46,6 +46,8 @@ compile-contract SwapCreator.sol SwapCreator swap_creator
 compile-contract TestERC20.sol TestERC20 erc20_token
 compile-contract @openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol IERC20 ierc20
 compile-contract AggregatorV3Interface.sol AggregatorV3Interface aggregator_v3_interface
+compile-contract wsXMR.sol WsXMR wsxmr_token
+compile-contract VaultManager.sol VaultManager vault_manager
 
 # etherscan lets you upload solidity sources in "standard JSON input" format.
 # With solc 0.8.20+, using the "--metadata --metadata-literal" flags, we can
