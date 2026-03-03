@@ -46,7 +46,7 @@ func DeployWsXMRProtocol(
 
 	// Step 2: Deploy VaultManager
 	log.Infof("deploying VaultManager.sol")
-	vaultMgrAddress, vaultMgrTx, vaultMgr, err := DeployVaultManager(
+	vaultMgrAddress, vaultMgrTx, _, err := DeployVaultManager(
 		txOpts,
 		ec,
 		wsxmrAddress,
