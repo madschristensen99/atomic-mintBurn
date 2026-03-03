@@ -1,0 +1,18 @@
+[profile.default]
+src = "ethereum/contracts"
+out = "ethereum/abi"
+libs = ["ethereum/contracts/@openzeppelin"]
+solc_version = "0.8.19"
+optimizer = true
+optimizer_runs = 200
+via_ir = false
+remappings = [
+    "@openzeppelin/=ethereum/contracts/@openzeppelin/",
+    "forge-std/=ethereum/contracts/@openzeppelin/forge-std/src/"
+]
+
+[rpc_endpoints]
+monad_testnet = "https://testnet-rpc.monad.xyz"
+
+[etherscan]
+monad_testnet = { key = "monad", url = "https://testnet.monadvision.com/api" }

@@ -1,6 +1,22 @@
 # wsXMR - Wrapsynth Protocol
 
-**Status: In Development** - Transforming AthanorLabs atomic-swap into a stateful, trust-minimized wrapped token protocol.
+**Status: Live on Monad Testnet** ✅
+
+## 🚀 Testnet Deployment (Monad)
+
+**Network:** Monad Testnet (Chain ID: 10143)  
+**Deployed:** March 3, 2026
+
+| Contract | Address | Explorer |
+|----------|---------|----------|
+| wsXMR Token | `0xb694120Ecdc69fbbEe3Ae21831d7B76ab8a9169B` | [View](https://testnet.monadvision.com/address/0xb694120Ecdc69fbbEe3Ae21831d7B76ab8a9169B) |
+| VaultManager | `0x6ABAEB70c9BA9EA497Ff5e20D08bd20Ca1E02139` | [View](https://testnet.monadvision.com/address/0x6ABAEB70c9BA9EA497Ff5e20D08bd20Ca1E02139) |
+| XMR/USD Oracle | `0x9B8d1851bCc06ac265c1c1ACaBD0F71E69DD312c` | [View](https://testnet.monadvision.com/address/0x9B8d1851bCc06ac265c1c1ACaBD0F71E69DD312c) |
+| ETH/USD Oracle | `0x15bb9ba8236De055090a262F45a7e213F6040320` | [View](https://testnet.monadvision.com/address/0x15bb9ba8236De055090a262F45a7e213F6040320) |
+
+**Try it:** Get testnet MON from [Monad Faucet](https://faucet.monad.xyz/)
+
+---
 
 ## Overview
 
