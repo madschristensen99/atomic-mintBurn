@@ -7,7 +7,7 @@ import {IERC20Metadata} from "./IERC20Metadata.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Secp256k1} from "./Secp256k1.sol";
-import {AggregatorV3Interface} from "./AggregatorV3Interface.sol";
+import {IPyth, PythStructs} from "./IPyth.sol";
 import {wsXMR} from "./wsXMR.sol";
 
 /**
@@ -32,13 +32,16 @@ contract VaultManager is Secp256k1, ReentrancyGuard, Ownable {
     
     wsXMR public immutable wsxmrToken;
     
-    // Price oracles
-    AggregatorV3Interface public xmrUsdOracle;
-    AggregatorV3Interface public ethUsdOracle;
+    // Pyth oracle
+    IPyth public immutable pyth;
     
-    // Supported collateral tokens (address(0) = native ETH)
+    // Pyth price feed IDs
+    bytes32 public constant XMR_USD_FEED_ID = 0x46b8cc9347f04391764a0361e0b17c3ba394b001e7c304f7650f6376e37c321d;
+    bytes32 public constant MON_USD_FEED_ID = 0x31491744e2dbf6df7fcf4ac0820d18a609b49076d45066d3568424e62f686cd1;
+    
+    // Supported collateral tokens (address(0) = native MON)
     mapping(address => bool) public supportedCollateral;
-    mapping(address => AggregatorV3Interface) public collateralOracles;
+    mapping(address => bytes32) public collateralPriceFeeds; // Maps collateral to Pyth feed ID
     
     // ========== ENUMS ==========
     
@@ -172,28 +175,26 @@ contract VaultManager is Secp256k1, ReentrancyGuard, Ownable {
     error Unauthorized();
     error InvalidValue();
     error StalePrice();
+    error InvalidAsset();
     
     // ========== CONSTRUCTOR ==========
     
     constructor(
         address _wsxmrToken,
-        address _xmrUsdOracle,
-        address _ethUsdOracle,
+        address _pythContract,
         address _initialOwner
     ) Ownable(_initialOwner) {
         if (_wsxmrToken == address(0)) revert ZeroAddress();
-        if (_xmrUsdOracle == address(0)) revert ZeroAddress();
-        if (_ethUsdOracle == address(0)) revert ZeroAddress();
+        if (_pythContract == address(0)) revert ZeroAddress();
         if (_initialOwner == address(0)) revert ZeroAddress();
         
         wsxmrToken = wsXMR(_wsxmrToken);
-        xmrUsdOracle = AggregatorV3Interface(_xmrUsdOracle);
-        ethUsdOracle = AggregatorV3Interface(_ethUsdOracle);
+        pyth = IPyth(_pythContract);
         
-        // Enable ETH as default collateral
+        // Enable native MON as default collateral
         supportedCollateral[address(0)] = true;
-        collateralOracles[address(0)] = ethUsdOracle;
-        emit CollateralSupported(address(0), _ethUsdOracle);
+        collateralPriceFeeds[address(0)] = MON_USD_FEED_ID;
+        emit CollateralSupported(address(0), _pythContract);
     }
     
     // ========== VAULT MANAGEMENT ==========
@@ -600,32 +601,51 @@ contract VaultManager is Secp256k1, ReentrancyGuard, Ownable {
      * @notice Get XMR price in USD (18 decimals)
      */
     function getXmrPrice() public view returns (uint256) {
-        (, int256 price, , uint256 updatedAt, ) = xmrUsdOracle.latestRoundData();
-        if (price <= 0) revert StalePrice();
-        if (block.timestamp - updatedAt > 1 hours) revert StalePrice();
+        PythStructs.Price memory priceData = pyth.getPriceNoOlderThan(XMR_USD_FEED_ID, 60);
+        if (priceData.price <= 0) revert StalePrice();
         
-        // Chainlink prices are typically 8 decimals, scale to 18
-        uint8 decimals = xmrUsdOracle.decimals();
-        if (decimals > 18) {
-            return uint256(price) / (10 ** (decimals - 18));
+        // Pyth prices have expo (e.g., -8 means divide by 1e8)
+        // Convert to 18 decimals
+        uint256 price = uint256(uint64(priceData.price));
+        int32 expo = priceData.expo;
+        
+        if (expo >= 0) {
+            return price * (10 ** uint32(expo)) * 1e18;
+        } else {
+            uint32 absExpo = uint32(-expo);
+            if (absExpo >= 18) {
+                return price / (10 ** (absExpo - 18));
+            } else {
+                return price * (10 ** (18 - absExpo));
+            }
         }
-        return uint256(price) * (10 ** (18 - decimals));
     }
     
     /**
      * @notice Get collateral asset price in USD (18 decimals)
      */
     function getCollateralPrice(address _asset) public view returns (uint256) {
-        AggregatorV3Interface oracle = collateralOracles[_asset];
-        (, int256 price, , uint256 updatedAt, ) = oracle.latestRoundData();
-        if (price <= 0) revert StalePrice();
-        if (block.timestamp - updatedAt > 1 hours) revert StalePrice();
+        bytes32 feedId = collateralPriceFeeds[_asset];
+        if (feedId == bytes32(0)) revert InvalidAsset();
         
-        uint8 decimals = oracle.decimals();
-        if (decimals > 18) {
-            return uint256(price) / (10 ** (decimals - 18));
+        PythStructs.Price memory priceData = pyth.getPriceNoOlderThan(feedId, 60);
+        if (priceData.price <= 0) revert StalePrice();
+        
+        // Pyth prices have expo (e.g., -8 means divide by 1e8)
+        // Convert to 18 decimals
+        uint256 price = uint256(uint64(priceData.price));
+        int32 expo = priceData.expo;
+        
+        if (expo >= 0) {
+            return price * (10 ** uint32(expo)) * 1e18;
+        } else {
+            uint32 absExpo = uint32(-expo);
+            if (absExpo >= 18) {
+                return price / (10 ** (absExpo - 18));
+            } else {
+                return price * (10 ** (18 - absExpo));
+            }
         }
-        return uint256(price) * (10 ** (18 - decimals));
     }
     
     /**
@@ -719,32 +739,15 @@ contract VaultManager is Secp256k1, ReentrancyGuard, Ownable {
     // ========== ADMIN FUNCTIONS ==========
     
     /**
-     * @notice Update XMR/USD oracle
+     * @notice Add support for new collateral type with Pyth price feed
+     * @param _asset Address of the collateral token (address(0) for native MON)
+     * @param _pythFeedId Pyth price feed ID for this asset
      */
-    function setXmrOracle(address _oracle) external onlyOwner {
-        if (_oracle == address(0)) revert ZeroAddress();
-        xmrUsdOracle = AggregatorV3Interface(_oracle);
-        emit OracleUpdated("XMR_USD", _oracle);
-    }
-    
-    /**
-     * @notice Update ETH/USD oracle
-     */
-    function setEthOracle(address _oracle) external onlyOwner {
-        if (_oracle == address(0)) revert ZeroAddress();
-        ethUsdOracle = AggregatorV3Interface(_oracle);
-        collateralOracles[address(0)] = ethUsdOracle;
-        emit OracleUpdated("ETH_USD", _oracle);
-    }
-    
-    /**
-     * @notice Add support for new collateral type
-     */
-    function addCollateralSupport(address _asset, address _oracle) external onlyOwner {
-        if (_oracle == address(0)) revert ZeroAddress();
+    function addCollateralSupport(address _asset, bytes32 _pythFeedId) external onlyOwner {
+        if (_pythFeedId == bytes32(0)) revert InvalidAsset();
         supportedCollateral[_asset] = true;
-        collateralOracles[_asset] = AggregatorV3Interface(_oracle);
-        emit CollateralSupported(_asset, _oracle);
+        collateralPriceFeeds[_asset] = _pythFeedId;
+        emit CollateralSupported(_asset, address(pyth));
     }
     
     /**
@@ -752,6 +755,6 @@ contract VaultManager is Secp256k1, ReentrancyGuard, Ownable {
      */
     function removeCollateralSupport(address _asset) external onlyOwner {
         supportedCollateral[_asset] = false;
-        delete collateralOracles[_asset];
+        delete collateralPriceFeeds[_asset];
     }
 }
