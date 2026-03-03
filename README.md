@@ -5,14 +5,14 @@
 ## 🚀 Testnet Deployment (Monad)
 
 **Network:** Monad Testnet (Chain ID: 10143)  
-**Deployed:** March 3, 2026
+**Deployed:** March 3, 2026 (Audit-Fixed v2)
 
 | Contract | Address | Explorer |
 |----------|---------|----------|
-| wsXMR Token | `0xb694120Ecdc69fbbEe3Ae21831d7B76ab8a9169B` | [View](https://testnet.monadvision.com/address/0xb694120Ecdc69fbbEe3Ae21831d7B76ab8a9169B) |
-| VaultManager | `0x6ABAEB70c9BA9EA497Ff5e20D08bd20Ca1E02139` | [View](https://testnet.monadvision.com/address/0x6ABAEB70c9BA9EA497Ff5e20D08bd20Ca1E02139) |
-| XMR/USD Oracle | `0x9B8d1851bCc06ac265c1c1ACaBD0F71E69DD312c` | [View](https://testnet.monadvision.com/address/0x9B8d1851bCc06ac265c1c1ACaBD0F71E69DD312c) |
-| ETH/USD Oracle | `0x15bb9ba8236De055090a262F45a7e213F6040320` | [View](https://testnet.monadvision.com/address/0x15bb9ba8236De055090a262F45a7e213F6040320) |
+| wsXMR Token | `0x75b85bbC8779B9cDe77cc9DD0335C27410455A53` | [View](https://testnet.monadvision.com/address/0x75b85bbC8779B9cDe77cc9DD0335C27410455A53) |
+| VaultManager | `0xd821A7D919e007b6b39925f672f1219dB4865Fba` | [View](https://testnet.monadvision.com/address/0xd821A7D919e007b6b39925f672f1219dB4865Fba) |
+| XMR/USD Oracle | `0x8e3EF1e28262E351EB066374df1bEd36CC704dDA` | [View](https://testnet.monadvision.com/address/0x8e3EF1e28262E351EB066374df1bEd36CC704dDA) |
+| ETH/USD Oracle | `0x4A7C22878c8C25354DD926bd89722a3aadafcb66` | [View](https://testnet.monadvision.com/address/0x4A7C22878c8C25354DD926bd89722a3aadafcb66) |
 
 **Try it:** Get testnet MON from [Monad Faucet](https://faucet.monad.xyz/)
 
