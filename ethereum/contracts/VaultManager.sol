@@ -268,7 +268,8 @@ contract VaultManager is Secp256k1, ReentrancyGuard, Ownable {
         
         // Transfer collateral back to LP
         if (vault.collateralAsset == address(0)) {
-            payable(msg.sender).transfer(_amount);
+            (bool success, ) = payable(msg.sender).call{value: _amount}("");
+            require(success, "ETH transfer failed");
         } else {
             IERC20(vault.collateralAsset).safeTransfer(msg.sender, _amount);
         }
@@ -392,9 +393,18 @@ contract VaultManager is Secp256k1, ReentrancyGuard, Ownable {
      */
     function cancelMint(bytes32 _requestId) external {
         MintRequest storage request = mintRequests[_requestId];
-        if (request.status != MintStatus.PENDING) revert InvalidStatus();
+        // Allow cancellation from PENDING (timeout) or READY (extended timeout)
+        if (request.status != MintStatus.PENDING && request.status != MintStatus.READY) {
+            revert InvalidStatus();
+        }
         if (msg.sender != request.user) revert Unauthorized();
-        if (block.timestamp < request.timeout) revert TimeoutNotReached();
+        
+        // For READY state, require extended timeout (48h from initiation)
+        uint256 requiredTimeout = request.status == MintStatus.READY 
+            ? request.timeout + 24 hours 
+            : request.timeout;
+        
+        if (block.timestamp < requiredTimeout) revert TimeoutNotReached();
         
         request.status = MintStatus.CANCELLED;
         emit MintCancelled(_requestId);
@@ -425,11 +435,12 @@ contract VaultManager is Secp256k1, ReentrancyGuard, Ownable {
         // Convert wsXMR to XMR amount
         uint256 xmrAmount = _wsxmrAmount * 1e4;
         
-        // Calculate the 150% collateral required strictly for this burn
+        // Calculate the 120% collateral to escrow (matching liquidation ratio)
+        // If LP fails, user gets 120% penalty. Excess stays with LP.
         uint256 collateralValue = getCollateralValueForDebt(_wsxmrAmount);
         uint256 collateralToEscrow = usdToCollateral(
             vault.collateralAsset,
-            (collateralValue * COLLATERAL_RATIO) / RATIO_PRECISION
+            (collateralValue * LIQUIDATION_RATIO) / RATIO_PRECISION
         );
         
         // Ensure the LP actually has enough free collateral to cover this burn
@@ -521,7 +532,8 @@ contract VaultManager is Secp256k1, ReentrancyGuard, Ownable {
         // Debt and Collateral were already separated from the vault in initiateBurn
         // Just send the escrow straight to the user (no underflow risk)
         if (vault.collateralAsset == address(0)) {
-            payable(request.user).transfer(request.escrowedCollateral);
+            (bool success, ) = payable(request.user).call{value: request.escrowedCollateral}("");
+            require(success, "ETH transfer failed");
         } else {
             IERC20(vault.collateralAsset).safeTransfer(request.user, request.escrowedCollateral);
         }
@@ -573,7 +585,8 @@ contract VaultManager is Secp256k1, ReentrancyGuard, Ownable {
         
         // Transfer collateral to liquidator
         if (vault.collateralAsset == address(0)) {
-            payable(msg.sender).transfer(collateralAmount);
+            (bool success, ) = payable(msg.sender).call{value: collateralAmount}("");
+            require(success, "ETH transfer failed");
         } else {
             IERC20(vault.collateralAsset).safeTransfer(msg.sender, collateralAmount);
         }
@@ -593,6 +606,9 @@ contract VaultManager is Secp256k1, ReentrancyGuard, Ownable {
         
         // Chainlink prices are typically 8 decimals, scale to 18
         uint8 decimals = xmrUsdOracle.decimals();
+        if (decimals > 18) {
+            return uint256(price) / (10 ** (decimals - 18));
+        }
         return uint256(price) * (10 ** (18 - decimals));
     }
     
@@ -606,6 +622,9 @@ contract VaultManager is Secp256k1, ReentrancyGuard, Ownable {
         if (block.timestamp - updatedAt > 1 hours) revert StalePrice();
         
         uint8 decimals = oracle.decimals();
+        if (decimals > 18) {
+            return uint256(price) / (10 ** (decimals - 18));
+        }
         return uint256(price) * (10 ** (18 - decimals));
     }
     
